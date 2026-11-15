@@ -233,4 +233,26 @@ r = await as(A, `select unsubscribe_token t from contacts where id='${ids[1]}'`)
 await db.exec(`reset role; grant execute on function public.email_unsubscribe(uuid) to anon; set role anon; select public.email_unsubscribe('${tok}'); reset role;`);
 r = await as(A, `select do_not_contact from contacts where id='${ids[1]}'`); check("unsubscribe link sets do-not-contact", r.rows[0].do_not_contact === true);
 r = await as(A, `select public.email_unsubscribe('00000000-0000-0000-0000-000000000000') n`); check("bad token is harmless", r.rows?.[0]?.n === null);
+
+// ===================== Fill-in imports =====================
+r = await as(A, `insert into contacts(company_name, district, city) values ('Sunrise Bakery','Kandy','Kandy'),('Sunrise Bakery','Galle','Galle'),('Unique Traders (Pvt) Ltd', null, null)`);
+check("merge test data inserted", !r.error, r.error ?? "");
+r = await as(A, `select merge_contacts($$[
+  {"company_name":"Whatever","mobile":"+94771234567","email":"spice@example.lk","website":"https://spice.example"},
+  {"company_name":"UNIQUE TRADERS PVT LTD","email":"info@unique.lk","district":"Matara"},
+  {"company_name":"Sunrise Bakery","email":"x@sunrise.lk"},
+  {"company_name":"Sunrise Bakery","email":"kandy@sunrise.lk","district":"kandy"},
+  {"company_name":"Not In CRM","email":"new@x.lk"}
+]$$::jsonb) m`);
+const mres = r.rows?.[0]?.m ?? [];
+check("merge: matched by mobile", mres[0]?.id === ids[0] && mres[0]?.filled.includes("email"), JSON.stringify(mres[0] ?? r.error));
+check("merge: matched by unique name, district filled", !!mres[1]?.id && mres[1].filled.includes("district"), JSON.stringify(mres[1]));
+check("merge: ambiguous name not matched", mres[2]?.id === null, JSON.stringify(mres[2]));
+check("merge: district narrows to one", !!mres[3]?.id, JSON.stringify(mres[3]));
+check("merge: unknown company unmatched", mres[4]?.id === null);
+r = await as(A, `select email, website from contacts where id='${ids[0]}'`); check("merge fills empty fields", r.rows[0].email === "spice@example.lk" && r.rows[0].website === "https://spice.example", JSON.stringify(r.rows[0]));
+r = await as(A, `select merge_contacts($$[{"company_name":"x","mobile":"+94771234567","email":"other@example.lk"}]$$::jsonb) m`);
+r = await as(A, `select email from contacts where id='${ids[0]}'`); check("merge never overwrites", r.rows[0].email === "spice@example.lk");
+r = await as(E2, `select merge_contacts($$[{"company_name":"x","mobile":"+94771234567","email":"hack@x.lk"}]$$::jsonb) m`);
+check("merge respects RLS (other exec's lead not visible)", r.rows?.[0]?.m?.[0]?.id === null, JSON.stringify(r.rows?.[0]?.m ?? r.error));
 await db.close();

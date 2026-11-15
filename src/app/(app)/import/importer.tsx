@@ -14,7 +14,7 @@ const BATCH = 500;
 
 interface HistoryRow {
   id: string; file_name: string; status: string; total_rows: number; inserted_rows: number; duplicate_rows: number;
-  invalid_rows: number; invalid_phone_rows: number; created_at: string; by: { full_name: string } | null;
+  invalid_rows: number; invalid_phone_rows: number; created_at: string; by: { full_name: string } | null; updated_rows?: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -32,10 +32,12 @@ export function Importer({ canImport, assignees, history }: {
   const [assignTo, setAssignTo] = useState("");
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number; inserted: number; duplicates: number; failed: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; inserted: number; duplicates: number; failed: number; updated: number; unchanged: number; notFound: number } | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastImportId, setLastImportId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"skip" | "fill">("skip");
+  const [addNew, setAddNew] = useState(true);
 
   const sheet = sheets[sheetIdx];
 
@@ -70,6 +72,7 @@ export function Importer({ canImport, assignees, history }: {
     const seen = new Set<string>();
     let fileDuplicates = 0;
     let validMobiles = 0;
+    let withEmail = 0;
     for (const raw of sheet.rows) {
       const { row, issues: iss } = prepareRow(raw, mapping);
       iss.forEach((i) => issues[i]++);
@@ -78,9 +81,10 @@ export function Importer({ canImport, assignees, history }: {
       if (seen.has(key)) { fileDuplicates++; continue; }
       seen.add(key);
       if (row.mobile) validMobiles++;
+      if (row.email) withEmail++;
       prepared.push(row);
     }
-    return { prepared, issues, fileDuplicates, validMobiles };
+    return { prepared, issues, fileDuplicates, validMobiles, withEmail };
   }, [sheet, mapping]);
 
   async function runImport() {
@@ -88,7 +92,7 @@ export function Importer({ canImport, assignees, history }: {
     const supabase = createClient();
     setRunning(true); setError(null); setResult(null); cancelRef.current = false;
     const rows = analysis.prepared;
-    const prog = { done: 0, total: rows.length, inserted: 0, duplicates: analysis.fileDuplicates, failed: 0 };
+    const prog = { done: 0, total: rows.length, inserted: 0, duplicates: analysis.fileDuplicates, failed: 0, updated: 0, unchanged: 0, notFound: 0 };
     setProgress({ ...prog });
     const errors: { row: string; error: string }[] = [];
 
@@ -113,8 +117,29 @@ export function Importer({ canImport, assignees, history }: {
 
     for (let i = 0; i < rows.length; i += BATCH) {
       if (cancelRef.current) break;
-      const chunk = rows.slice(i, i + BATCH);
+      let chunk = rows.slice(i, i + BATCH);
       let ids: string[] = [];
+
+      // "Fill in missing details": update leads that already exist, then only insert the rest
+      if (mode === "fill") {
+        const { data: merged, error: mErr } = await supabase.rpc("merge_contacts", { p_rows: chunk, p_import: imp.id });
+        if (mErr) {
+          if (errors.length < 100) errors.push({ row: `batch ${i / BATCH + 1}`, error: `Matching: ${mErr.message}` });
+        } else {
+          const results = (merged ?? []) as { i: number; id: string | null; filled: string[] }[];
+          const reclassify: string[] = [];
+          const unmatched: PreparedRow[] = [];
+          results.forEach((m) => {
+            if (m.id) {
+              if (m.filled.length) { prog.updated++; if (m.filled.some((f) => ["website", "facebook", "industry"].includes(f))) reclassify.push(m.id); }
+              else prog.unchanged++;
+            } else unmatched.push(chunk[m.i]);
+          });
+          if (reclassify.length) await supabase.rpc("classify_contacts", { p_ids: reclassify });
+          if (!addNew) { prog.notFound += unmatched.length; chunk = []; } else chunk = unmatched;
+        }
+        if (!chunk.length) { prog.done = Math.min(i + BATCH, rows.length); setProgress({ ...prog }); continue; }
+      }
       const { data, error: insErr } = await supabase
         .from("contacts")
         .upsert(chunk.map(toRecord), { onConflict: "dedupe_key", ignoreDuplicates: true })
@@ -146,7 +171,8 @@ export function Importer({ canImport, assignees, history }: {
     await supabase.from("lead_imports").update({
       status: cancelled ? "cancelled" : "completed",
       inserted_rows: prog.inserted,
-      duplicate_rows: prog.duplicates,
+      updated_rows: prog.updated,
+      duplicate_rows: prog.duplicates + prog.unchanged,
       invalid_rows: analysis.issues.missing_company + prog.failed,
       errors,
       finished_at: new Date().toISOString(),
@@ -154,7 +180,9 @@ export function Importer({ canImport, assignees, history }: {
 
     setRunning(false);
     setResult(
-      `${cancelled ? "Import cancelled" : "Import complete"}: ${formatNumber(prog.inserted)} new leads, ${formatNumber(prog.duplicates)} duplicates skipped, ${formatNumber(analysis.issues.missing_company + prog.failed)} invalid rows.` +
+      `${cancelled ? "Import cancelled" : "Import complete"}: ${formatNumber(prog.inserted)} new leads` +
+      (mode === "fill" ? `, ${formatNumber(prog.updated)} existing leads got new details, ${formatNumber(prog.unchanged)} already had them` + (addNew ? "" : `, ${formatNumber(prog.notFound)} not found in the CRM (not added)`) : "") +
+      `, ${formatNumber(prog.duplicates)} duplicates skipped, ${formatNumber(analysis.issues.missing_company + prog.failed)} invalid rows.` +
       (errors.length ? ` First error: ${errors[0].error}` : ""),
     );
     setLastImportId(imp.id);
@@ -228,6 +256,23 @@ export function Importer({ canImport, assignees, history }: {
                 </Select>
               </div>
             </div>
+            <div className="space-y-2 border-t border-slate-100 px-5 py-4 text-sm dark:border-slate-800">
+              <p className="font-medium">If a company is already in the CRM</p>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="mode" className="mt-1" checked={mode === "skip"} disabled={running} onChange={() => setMode("skip")} />
+                <span><strong>Skip it</strong> — only add new companies.</span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="mode" className="mt-1" checked={mode === "fill"} disabled={running} onChange={() => setMode("fill")} />
+                <span><strong>Fill in its missing details</strong> — add emails, websites, contact people, etc. to companies you already have. Matched by mobile number, or by company name (plus district/city when the sheet has them). Details already in the CRM are never overwritten.</span>
+              </label>
+              {mode === "fill" && (
+                <label className="ml-6 flex items-center gap-2">
+                  <input type="checkbox" checked={addNew} disabled={running} onChange={(e) => setAddNew(e.target.checked)} />
+                  Also add companies that aren&apos;t found as new leads
+                </label>
+              )}
+            </div>
           </Card>
 
           {!mapping.company_name && <Alert kind="warn">Map the Company Name column to continue.</Alert>}
@@ -237,6 +282,7 @@ export function Importer({ canImport, assignees, history }: {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
                 <Stat label="Ready to import" value={analysis.prepared.length} />
                 <Stat label="Valid mobiles" value={analysis.validMobiles} />
+                <Stat label="With email" value={analysis.withEmail} />
                 <Stat label="Duplicates in file" value={analysis.fileDuplicates} warn />
                 <Stat label="Invalid phone numbers" value={analysis.issues.invalid_phone} warn />
                 <Stat label="No phone" value={analysis.issues.no_phone} />
@@ -274,7 +320,7 @@ export function Importer({ canImport, assignees, history }: {
                   <div className="mb-4">
                     <div className="mb-1 flex justify-between text-sm">
                       <span>{formatNumber(progress.done)} / {formatNumber(progress.total)} processed</span>
-                      <span className="text-slate-500">{formatNumber(progress.inserted)} new · {formatNumber(progress.duplicates)} duplicates · {formatNumber(progress.failed)} failed</span>
+                      <span className="text-slate-500">{formatNumber(progress.inserted)} new{mode === "fill" ? ` · ${formatNumber(progress.updated)} updated` : ""} · {formatNumber(progress.duplicates + progress.unchanged)} duplicates · {formatNumber(progress.failed)} failed</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div className="h-full bg-brand-600 transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
@@ -298,9 +344,9 @@ export function Importer({ canImport, assignees, history }: {
       <Card className="overflow-x-auto">
         <CardHeader title="Import history" />
         <table className="table-base">
-          <thead><tr><th>File</th><th>Status</th><th className="text-right">Rows</th><th className="text-right">New</th><th className="text-right">Duplicates</th><th className="text-right">Invalid</th><th className="text-right">Bad phones</th><th>By</th><th>Date</th></tr></thead>
+          <thead><tr><th>File</th><th>Status</th><th className="text-right">Rows</th><th className="text-right">New</th><th className="text-right">Updated</th><th className="text-right">Duplicates</th><th className="text-right">Invalid</th><th className="text-right">Bad phones</th><th>By</th><th>Date</th></tr></thead>
           <tbody>
-            {history.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-slate-500">No imports yet.</td></tr>}
+            {history.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-slate-500">No imports yet.</td></tr>}
             {history.map((h) => (
               <tr key={h.id}>
                 <td className="font-medium">
@@ -311,6 +357,7 @@ export function Importer({ canImport, assignees, history }: {
                 <td><Badge className={h.status === "completed" ? "bg-emerald-50 text-emerald-700" : h.status === "processing" ? "bg-amber-50 text-amber-700" : ""}>{h.status}</Badge></td>
                 <td className="text-right tabular-nums">{formatNumber(h.total_rows)}</td>
                 <td className="text-right tabular-nums">{formatNumber(h.inserted_rows)}</td>
+                <td className="text-right tabular-nums">{formatNumber(h.updated_rows ?? 0)}</td>
                 <td className="text-right tabular-nums">{formatNumber(h.duplicate_rows)}</td>
                 <td className="text-right tabular-nums">{formatNumber(h.invalid_rows)}</td>
                 <td className="text-right tabular-nums">{formatNumber(h.invalid_phone_rows)}</td>

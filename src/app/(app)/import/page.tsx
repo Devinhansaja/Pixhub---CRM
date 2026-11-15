@@ -10,7 +10,7 @@ export default async function ImportPage() {
     loadAssignees(supabase),
     supabase
       .from("lead_imports")
-      .select("id,file_name,status,total_rows,inserted_rows,duplicate_rows,invalid_rows,invalid_phone_rows,created_at,finished_at,by:profiles!lead_imports_created_by_fkey(full_name)")
+      .select("id,file_name,status,total_rows,inserted_rows,updated_rows,duplicate_rows,invalid_rows,invalid_phone_rows,created_at,finished_at,by:profiles!lead_imports_created_by_fkey(full_name)")
       .order("created_at", { ascending: false })
       .limit(20),
   ]);

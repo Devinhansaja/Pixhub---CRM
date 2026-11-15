@@ -32,7 +32,7 @@ export default function LoginPage({ searchParams }: { searchParams: { error?: st
         <div>
           <h2 className="text-3xl font-semibold leading-tight">Turn business databases into<br />paying customers.</h2>
           <p className="mt-4 max-w-md text-sm text-slate-300">
-            Import contacts, find the right PIXhub service for every business, reach out on WhatsApp and track every deal — in one place.
+            Import contacts, find the right PIXhub service for every business, reach out with personalised email campaigns and track every deal — in one place.
           </p>
         </div>
         <p className="text-xs text-slate-400">© PIXhub.lk</p>
