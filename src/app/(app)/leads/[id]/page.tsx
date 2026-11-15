@@ -9,14 +9,13 @@ import { formatDate } from "@/lib/utils";
 import { outreachLabel, stageColor, stageLabel } from "@/lib/constants";
 import {
   AssignControl, DetailsForm, DncControl, FollowUpPanel, NoteForm, RecommendationsPanel,
-  StageControl, VerificationPanel, WhatsAppPanel,
+  StageControl, VerificationPanel,
 } from "./panels";
 import { DealsPanel, LeadTasksPanel, QuotationsList, type Deal } from "./sales-panels";
 import { AiPanel } from "./ai-panel";
 import { EnrichPanel, type Enrichment } from "./enrich-panel";
-import { CloudApiPanel } from "./cloud-panel";
+import { EmailPanel, type EmailRow } from "./email-panel";
 import { aiEnabled } from "@/lib/ai";
-import { waConfigured } from "@/lib/whatsapp-cloud";
 
 export default async function LeadDetailPage({ params }: { params: { id: string } }) {
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
@@ -26,7 +25,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
   const { data: c } = await supabase.from("contacts").select("*").eq("id", params.id).maybeSingle();
   if (!c) notFound();
 
-  const [recs, activities, followUps, comms, templates, services, assignees, deals, quotations, tasks, enrichment, waTemplates] = await Promise.all([
+  const [recs, activities, followUps, emails, services, assignees, deals, quotations, tasks, enrichment] = await Promise.all([
     supabase.from("lead_service_recommendations")
       .select("id,confidence,basis,reason,is_verified,service:services(id,name,category)")
       .eq("contact_id", c.id).order("confidence", { ascending: false }),
@@ -35,9 +34,8 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
       .eq("contact_id", c.id).order("created_at", { ascending: false }).limit(100),
     supabase.from("follow_ups").select("id,due_at,channel,note,status,assigned_to")
       .eq("contact_id", c.id).order("due_at", { ascending: false }).limit(50),
-    supabase.from("communication_logs").select("id,status,direction,body,created_at,source,delivery_status")
-      .eq("contact_id", c.id).order("created_at", { ascending: false }).limit(50),
-    supabase.from("message_templates").select("id,name,category,body").eq("is_active", true).order("name"),
+    supabase.from("email_messages").select("id,step,status,subject,sent_at,due_at,error,campaign:email_campaigns(id,name)")
+      .eq("contact_id", c.id).order("created_at", { ascending: false }).limit(30),
     supabase.from("services").select("id,name").eq("is_active", true).order("sort_order"),
     loadAssignees(supabase),
     supabase.from("deals").select("id,title,value,probability,stage,expected_close_date,service_id,assigned_to,service:services(name)")
@@ -45,14 +43,12 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
     supabase.from("quotations").select("id,number,status,total,expiry_date").eq("contact_id", c.id).order("created_at", { ascending: false }),
     supabase.from("tasks").select("id,title,status,priority,due_at").eq("contact_id", c.id).order("created_at", { ascending: false }).limit(20),
     supabase.from("lead_enrichment").select("*").eq("contact_id", c.id).order("checked_at", { ascending: false }).limit(1),
-    supabase.from("whatsapp_templates").select("id,name,language,body_preview").eq("is_active", true).order("name"),
   ]);
   const { data: allServices } = await supabase.from("services").select("slug,name");
   const slugNames = Object.fromEntries((allServices ?? []).map((s) => [s.slug, s.name]));
 
   type Rec = { id: string; confidence: number; basis: string; reason: string; is_verified: boolean; service: { id: string; name: string; category: string } | null };
   const recList = (recs.data ?? []) as unknown as Rec[];
-  const serviceNames = recList.map((r) => r.service?.name).filter(Boolean) as string[];
   const factors = (c.score_breakdown ?? []) as { factor: string; points: number; kind: string; evidence: string }[];
   const canManage = profile.role !== "sales_executive";
   const names = new Map(assignees.map((a) => [a.id, a.full_name]));
@@ -98,18 +94,9 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
             {c.notes && <p className="border-t border-slate-100 px-5 py-4 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400"><span className="font-medium">Imported notes:</span> {c.notes}</p>}
           </Card>
 
-          <WhatsAppPanel
-            contact={{ id: c.id, company_name: c.company_name, contact_person: c.contact_person, city: c.city, mobile: c.mobile, do_not_contact: c.do_not_contact }}
-            services={serviceNames}
-            templates={templates.data ?? []}
-            sender={profile.full_name}
-            comms={comms.data ?? []}
-          />
-          <CloudApiPanel
-            contact={{ id: c.id, mobile: c.mobile, do_not_contact: c.do_not_contact, whatsapp_opt_in_at: c.whatsapp_opt_in_at, whatsapp_opt_in_source: c.whatsapp_opt_in_source, last_inbound_at: c.last_inbound_at }}
-            configured={waConfigured()}
-            templates={waTemplates.data ?? []}
-          />
+          {/* WhatsApp panels are hidden (WhatsAppPanel / CloudApiPanel kept in the codebase). */}
+          <EmailPanel contactId={c.id} email={c.email} emailStatus={c.email_status ?? "unknown"} dnc={c.do_not_contact}
+            rows={(emails.data ?? []) as unknown as EmailRow[]} canSeeCampaigns={canManage} />
 
           <Card>
             <CardHeader title="Activity history" />

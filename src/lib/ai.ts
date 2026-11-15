@@ -162,6 +162,47 @@ export async function aiChat(
   }
 }
 
+export interface EmailReview { ok: boolean; score: number; issues: string[] }
+
+/**
+ * Reviews one outgoing campaign email before it is sent (runs from the scheduler, no user session).
+ * Usage is logged against the campaign creator. Returns ok=false with reasons when the email
+ * should be held back.
+ */
+export async function aiReviewEmail(
+  db: { from: (t: string) => { insert: (v: Record<string, unknown>) => PromiseLike<unknown> } },
+  ownerId: string | null,
+  email: { subject: string; body: string },
+  lead: Record<string, unknown>,
+): Promise<EmailReview> {
+  let res: BetaMessage | null = null;
+  try {
+    res = await create({
+      messages: [{
+        role: "user",
+        content: `${crmData("lead", lead)}\n${crmData("email", email)}\n\nReview this outgoing sales email before it is sent to this business. Block it (ok=false) if any of these are true: it addresses the wrong company or person; it contains unfilled placeholders like {{...}}; it claims facts about the business that the lead data doesn't support (e.g. "your website is slow", "your page is inactive"); it promises guaranteed results; it is pushy, misleading or spammy (ALL CAPS, many exclamation marks, "100% free", fake urgency); it is not in clear, professional language. Minor style suggestions alone are not a reason to block. Score 0-100 for quality.`,
+      }],
+      jsonSchema: {
+        type: "object", additionalProperties: false, required: ["ok", "score", "issues"],
+        properties: { ok: { type: "boolean" }, score: { type: "integer" }, issues: { type: "array", items: { type: "string" } } },
+      },
+      effort: "low",
+      maxTokens: 4000,
+    });
+    ensureFinished(res);
+    const out = JSON.parse(textOf(res)) as EmailReview;
+    out.score = Math.max(0, Math.min(100, Math.round(out.score)));
+    out.issues = (out.issues ?? []).slice(0, 6).map((s) => String(s).slice(0, 300));
+    await db.from("ai_requests").insert({ user_id: ownerId, feature: "email_review", model: res.model, status: "ok",
+      input_tokens: (res.usage.input_tokens ?? 0) + (res.usage.cache_read_input_tokens ?? 0) + (res.usage.cache_creation_input_tokens ?? 0),
+      output_tokens: res.usage.output_tokens });
+    return out;
+  } catch (e) {
+    if (ownerId) await db.from("ai_requests").insert({ user_id: ownerId, feature: "email_review", model: AI_MODEL, status: res?.stop_reason === "refusal" ? "refused" : "error" });
+    throw toAiError(e);
+  }
+}
+
 /** Wraps untrusted CRM text so the model treats it as data. */
 export const crmData = (label: string, data: unknown) =>
   `<crm_data source="${label}">\n${JSON.stringify(data, null, 1).replace(/<\/?crm_data/gi, "")}\n</crm_data>`;

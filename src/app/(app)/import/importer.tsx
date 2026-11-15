@@ -306,6 +306,7 @@ export function Importer({ canImport, assignees, history }: {
                 <td className="font-medium">
                   {h.file_name}
                   {h.inserted_rows > 0 && <Link href={`/leads?import=${h.id}`} className="ml-2 text-xs font-normal text-brand-600 hover:underline">View leads →</Link>}
+                  {h.inserted_rows > 0 && <Link href={`/campaigns/new?import=${h.id}`} className="ml-2 text-xs font-normal text-brand-600 hover:underline">Email these →</Link>}
                 </td>
                 <td><Badge className={h.status === "completed" ? "bg-emerald-50 text-emerald-700" : h.status === "processing" ? "bg-amber-50 text-amber-700" : ""}>{h.status}</Badge></td>
                 <td className="text-right tabular-nums">{formatNumber(h.total_rows)}</td>

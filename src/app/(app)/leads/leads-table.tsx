@@ -83,7 +83,8 @@ export function LeadsTable({ rows, assignees, canManage }: {
           <tbody>
             {rows.map((r) => {
               const services = [...(r.recs ?? [])].sort((a, b) => b.confidence - a.confidence).map((x) => x.service?.name).filter(Boolean) as string[];
-              const wa = !r.do_not_contact ? waLink(r.mobile) : null;
+              const wa: string | null = null; // WhatsApp shortcut hidden (was: waLink(r.mobile))
+              void waLink;
               return (
                 <tr key={r.id}>
                   {canManage && <td><input type="checkbox" aria-label={`Select ${r.company_name}`} checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>}

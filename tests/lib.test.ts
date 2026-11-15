@@ -7,6 +7,41 @@ import { lineTotal, quoteTotals } from "../src/lib/quote-math.ts";
 import { isPrivateIp, parseHtml } from "../src/lib/website-check.ts";
 import { verifySignature, templateParams } from "../src/lib/whatsapp-cloud.ts";
 import { createHmac } from "node:crypto";
+import { fillTemplate, toHtml, nextGapMs, inSendWindow, colomboDayStart, nextStatus } from "../src/lib/email-core.ts";
+import { verifySvix } from "../src/lib/email-signature.ts";
+
+test("email templates, html escaping and unsubscribe footer", () => {
+  assert.equal(fillTemplate("Hi {{contact_person}} at {{company}} – {{x}}", { company: "Lanka <Foods>" }), "Hi Sir/Madam at Lanka <Foods> – {{x}}");
+  const html = toHtml("Hello <b>\n\nVisit https://pixhub.lk", "PIXhub.lk", "https://crm/u/abc");
+  assert.match(html, /Hello &lt;b&gt;/);
+  assert.match(html, /<a href="https:\/\/pixhub\.lk"/);
+  assert.match(html, /Unsubscribe<\/a>/);
+});
+
+test("sending breaks and schedule (Colombo time)", () => {
+  assert.equal(nextGapMs(2, 5, () => 0), 120_000);
+  assert.equal(nextGapMs(2, 5, () => 1), 300_000);
+  assert.equal(nextGapMs(0.2, 0.5, () => 0), 60_000, "never faster than 1 minute");
+  const monday10 = new Date("2026-11-16T10:00:00+05:30");
+  assert.equal(inSendWindow(monday10, 9, 17, [1, 2, 3, 4, 5]), true);
+  assert.equal(inSendWindow(new Date("2026-11-16T08:59:00+05:30"), 9, 17, [1, 2, 3, 4, 5]), false);
+  assert.equal(inSendWindow(new Date("2026-11-15T10:00:00+05:30"), 9, 17, [1, 2, 3, 4, 5]), false, "Sunday off");
+  assert.equal(colomboDayStart(new Date("2026-11-16T02:00:00+05:30")).toISOString(), "2026-11-15T18:30:00.000Z");
+});
+
+test("Resend webhook signature and status ordering", () => {
+  const secret = "whsec_" + Buffer.from("supersecretkey123").toString("base64");
+  const body = '{"type":"email.delivered"}';
+  const ts = "1794700000";
+  const sig = createHmac("sha256", Buffer.from("supersecretkey123")).update(`msg_1.${ts}.${body}`).digest("base64");
+  assert.equal(verifySvix(body, { id: "msg_1", timestamp: ts, signature: `v1,${sig}` }, secret, 1794700100), true);
+  assert.equal(verifySvix(body + " ", { id: "msg_1", timestamp: ts, signature: `v1,${sig}` }, secret, 1794700100), false);
+  assert.equal(verifySvix(body, { id: "msg_1", timestamp: ts, signature: `v1,${sig}` }, secret, 1794709999), false, "too old");
+  assert.equal(nextStatus("sent", "delivered"), "delivered");
+  assert.equal(nextStatus("opened", "delivered"), null);
+  assert.equal(nextStatus("opened", "bounced"), "bounced");
+  assert.equal(nextStatus("bounced", "delivered"), null);
+});
 
 test("website check blocks private addresses (SSRF)", () => {
   for (const ip of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"]) {

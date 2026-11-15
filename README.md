@@ -167,6 +167,25 @@ Meta charges per conversation; see Meta's WhatsApp pricing for Sri Lanka. Click-
 
 ---
 
+## Email campaigns (replaces WhatsApp outreach in the menu)
+
+**Email Campaigns** (admins and managers): pick an audience (for example an uploaded file plus industry and district), write the email with `{{company}} {{contact_person}} {{services}} {{city}} {{sender}}`, and set up to 2 automatic follow-ups and the sending speed. Every campaign is **approved by an admin, or a manager other than its creator**, and **AI checks each email** before it goes out.
+
+- **Breaks:** each campaign sets emails per day, a random break between emails (min–max minutes, at least 1 minute), and sending hours and days in Sri Lanka time.
+- **Follow-ups:** sent after N days only if the lead hasn't replied ("They replied" button on the lead page), moved forward in the pipeline, or unsubscribed.
+- **Protection:** an unsubscribe link and one-click unsubscribe header are on every email. Opted-out contacts, bounced addresses and spam-complainers are never emailed. A campaign auto-pauses when bounces go above its limit (default 5%) or after 2 spam complaints, and the creator is notified.
+- **Notifications:** approval requests, approved / changes requested, AI held back emails, auto-pause, spam complaint, campaign finished.
+
+**Setup:**
+1. In Resend (resend.com): add and verify the **pixhub.lk** domain (DNS records), create an **API key**, and add a **webhook** to `https://YOUR-DOMAIN/api/email/webhook` for the events sent, delivered, opened, bounced and complained. Copy its signing secret.
+2. In Vercel → Environment Variables: `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `CRON_SECRET` (any long random string). Then redeploy.
+3. Supabase: run `supabase/migrations/20261115000006_email_campaigns.sql`, enable the `pg_cron` and `pg_net` extensions, and run `supabase/email-cron.sql` with your `CRON_SECRET`.
+4. CRM → Settings → **Email sending**: sender name, sender address (on the verified domain), reply-to inbox, footer with the business address.
+
+Resend's free plan allows 100 emails a day / 3,000 a month. Start new domains at about 30–50 a day and increase slowly.
+
+---
+
 ## Deploy to Vercel
 1. Push this folder to a GitHub repository.
 2. In Vercel, choose **New Project → Import** that repository (it detects Next.js on its own).

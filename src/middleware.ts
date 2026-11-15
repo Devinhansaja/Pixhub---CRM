@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   // Webhooks authenticate with their own signature, not a user session.
-  if (path.startsWith("/api/whatsapp/webhook")) return NextResponse.next();
+  if (path.startsWith("/api/whatsapp/webhook") || path.startsWith("/api/email/") || path.startsWith("/api/unsubscribe/")) {
+    return NextResponse.next();
+  }
 
   let response = NextResponse.next({ request });
 

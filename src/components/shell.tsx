@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Users, Upload, Sparkles, KanbanSquare, MessageCircle, CheckSquare,
+  LayoutDashboard, Users, Upload, Sparkles, KanbanSquare, Mail, CheckSquare,
   FileText, BarChart3, UserCog, Bot, Settings, ChevronsLeft, Menu, Moon, Sun, LogOut, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,8 @@ const NAV: { href: string; label: string; icon: React.ElementType; roles?: Role[
   { href: "/import", label: "Import Database", icon: Upload, roles: ["admin", "sales_manager"] },
   { href: "/classification", label: "Smart Classification", icon: Sparkles },
   { href: "/pipeline", label: "Sales Pipeline", icon: KanbanSquare },
-  { href: "/whatsapp", label: "WhatsApp Outreach", icon: MessageCircle },
+  // WhatsApp Outreach is hidden (code and history kept); re-add { href: "/whatsapp", … } to bring it back.
+  { href: "/campaigns", label: "Email Campaigns", icon: Mail, roles: ["admin", "sales_manager"] },
   { href: "/tasks", label: "Tasks & Follow-ups", icon: CheckSquare },
   { href: "/quotations", label: "Quotations", icon: FileText },
   { href: "/analytics", label: "Analytics & Reports", icon: BarChart3 },

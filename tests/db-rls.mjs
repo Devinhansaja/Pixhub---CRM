@@ -205,4 +205,32 @@ r = await as(E2, `select count(*)::int n from lead_enrichment`); check("enrichme
 r = await as(A, `select advanced_analytics() a`); check("advanced_analytics", !r.error, r.error ?? Object.keys(r.rows[0].a).join(","));
 r = await as(E, `insert into whatsapp_templates(name, body_preview) values ('x','y')`); check("only admin manages WA templates", !!r.error);
 r = await as(A, `insert into whatsapp_templates(name, body_preview, params) values ('pixhub_intro','Hello {{1}}', '{company}')`); check("admin adds WA template", !r.error, r.error ?? "");
+
+// ===================== Email campaigns =====================
+r = await as(E, `insert into email_campaigns(name, subject, body, created_by) values ('x','s','b','${E}')`); check("exec can't create campaign", !!r.error);
+r = await as(M, `insert into email_campaigns(name, subject, body, created_by, min_gap_minutes, max_gap_minutes) values ('Hotels Nov','Hi {{company}}','Hello','${M}', 2, 5) returning id`);
+check("manager creates campaign", !r.error, r.error ?? "");
+const camp = r.rows?.[0]?.id;
+r = await as(M, `insert into email_campaigns(name, subject, body, created_by, min_gap_minutes, max_gap_minutes) values ('bad','s','b','${M}', 5, 2)`); check("gap order enforced", !!r.error);
+r = await as(M, `update email_campaigns set status='pending_approval' where id='${camp}'`); check("submit", !r.error, r.error ?? "");
+r = await as(A, `select count(*)::int n from notifications where user_id='${A}' and kind='campaign'`); check("admin notified to approve", r.rows[0].n === 1);
+r = await as(M, `update email_campaigns set status='approved' where id='${camp}'`); check("creator manager can't self-approve", !!r.error, r.error ?? "");
+r = await as(M, `update email_campaigns set status='sending' where id='${camp}'`); check("can't start unapproved", !!r.error);
+r = await as(A, `update email_campaigns set status='approved' where id='${camp}' returning approved_by`); check("admin approves", r.rows?.[0]?.approved_by === A, r.error ?? "");
+r = await as(M, `update email_campaigns set body='changed' where id='${camp}'`); check("approved content frozen", !!r.error);
+r = await as(M, `update email_campaigns set status='sending' where id='${camp}'`); check("start after approval", !r.error, r.error ?? "");
+await as(A, `update contacts set email='owner@example.lk', do_not_contact=false where id='${ids[1]}'`);
+r = await as(M, `insert into email_messages(campaign_id, contact_id, to_email, step) values ('${camp}','${ids[1]}','owner@example.lk',0),('${camp}','${ids[1]}','owner@example.lk',1) returning id`);
+check("queue emails", r.rows?.length === 2, r.error ?? "");
+const m0 = r.rows?.[0];
+r = await as(E2, `select count(*)::int n from email_messages`); check("exec2 can't see others' email", r.rows[0].n === 0);
+await db.exec(`reset role; update public.email_messages set status='sent', sent_at=now(), subject='Hi' where id='${m0.id}'`);
+r = await as(A, `select stage, last_contacted_at from contacts where id='${ids[1]}'`); check("sent email marks lead contacted", r.rows[0].stage !== "new" && !!r.rows[0].last_contacted_at, JSON.stringify(r.rows[0]));
+r = await as(A, `select campaign_stats('${camp}') s`); check("campaign stats", r.rows?.[0]?.s.sent === 1 && r.rows[0].s.queued === 1, JSON.stringify(r.rows?.[0]?.s ?? r.error));
+r = await as(M, `select mark_email_replied('${ids[1]}') n`); check("reply stops follow-ups", r.rows?.[0]?.n === 1, r.error ?? "");
+r = await as(A, `select status from email_messages where id='${m0.id}'`); check("message marked replied", r.rows[0].status === "replied");
+r = await as(A, `select unsubscribe_token t from contacts where id='${ids[1]}'`); const tok = r.rows[0].t;
+await db.exec(`reset role; grant execute on function public.email_unsubscribe(uuid) to anon; set role anon; select public.email_unsubscribe('${tok}'); reset role;`);
+r = await as(A, `select do_not_contact from contacts where id='${ids[1]}'`); check("unsubscribe link sets do-not-contact", r.rows[0].do_not_contact === true);
+r = await as(A, `select public.email_unsubscribe('00000000-0000-0000-0000-000000000000') n`); check("bad token is harmless", r.rows?.[0]?.n === null);
 await db.close();
