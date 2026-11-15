@@ -379,7 +379,6 @@ create table public.system_settings (
   updated_at timestamptz not null default now()
 );
 
-
 -- >>> 20261113000002_functions_rls.sql
 -- =====================================================================
 -- PIXhub Sales CRM — helper functions, triggers, scoring, RLS
@@ -957,7 +956,6 @@ create policy notifications_send on public.notifications for insert to authentic
 -- audit logs: admins read; writes only via security-definer trigger
 create policy audit_admin_read on public.audit_logs for select to authenticated using (public.is_admin());
 
-
 -- >>> 20261113000003_seed.sql
 -- =====================================================================
 -- PIXhub Sales CRM — reference data (services, classification rules,
@@ -1195,7 +1193,6 @@ insert into public.system_settings (key, value) values
     'Not included: domain registration, web hosting, paid templates/plugins, API keys, SMS gateways, payment gateway registration fees and advertising budgets (billed separately as needed).' || chr(10) ||
     'Campaign shoots, travel and product photography are quoted separately.'))
 on conflict (key) do nothing;
-
 
 -- >>> 20261114000004_phase2.sql
 -- =====================================================================
@@ -1675,7 +1672,6 @@ returns jsonb language sql stable security invoker set search_path = public as $
   )
 $$;
 
-
 -- >>> 20261114000005_phase3.sql
 -- =====================================================================
 -- PIXhub Sales CRM — Phase 3: AI assistant usage, lead enrichment,
@@ -1917,7 +1913,6 @@ returns jsonb language sql stable security invoker set search_path = public as $
     'opted_in', (select count(*) from c where whatsapp_opt_in_at is not null)
   )
 $$;
-
 
 -- >>> 20261115000006_email_campaigns.sql
 -- =====================================================================
@@ -2179,7 +2174,6 @@ insert into public.system_settings (key, value) values
                                'footer', 'PIXhub.lk · Sri Lanka · info@pixhub.lk · 0712585960'))
 on conflict (key) do nothing;
 
-
 -- >>> 20261115000007_import_merge.sql
 -- =====================================================================
 -- PIXhub Sales CRM — "Fill in missing details" imports
@@ -2271,4 +2265,147 @@ begin
   end loop;
   return res;
 end $$;
+
+-- >>> 20261115000008_fast_breakdowns.sql
+-- =====================================================================
+-- Faster dashboard_breakdowns: with ~17k leads the old version re-scanned
+-- contacts (with RLS checks) ~30 times and hit the 8s statement timeout.
+-- This version reads the visible contacts and deals ONCE (materialized CTEs)
+-- and derives every breakdown from them. Same output shape as before.
+-- =====================================================================
+create or replace function public.dashboard_breakdowns()
+returns jsonb language sql stable security invoker set search_path = public as $$
+  with c as materialized (
+    select id, stage, industry, district, assigned_to, created_at, won_at, estimated_value
+      from public.contacts
+  ),
+  d as materialized (
+    select contact_id, service_id, stage, value, assigned_to, closed_at from public.deals
+  ),
+  has_deal as materialized (select distinct contact_id from d),
+  nodeal as materialized (
+    select c.* from c where not exists (select 1 from has_deal h where h.contact_id = c.id)
+  ),
+  months as (
+    select generate_series(
+      date_trunc('month', now() at time zone 'Asia/Colombo') - interval '11 months',
+      date_trunc('month', now() at time zone 'Asia/Colombo'),
+      interval '1 month') as m
+  ),
+  owner_deal_rev as (
+    select assigned_to, sum(value) as rev from d where stage = 'won' group by assigned_to
+  ),
+  owners as (
+    select c.assigned_to,
+           count(*) as leads,
+           count(*) filter (where c.stage not in ('new', 'researching')) as contacted,
+           count(*) filter (where c.stage = 'won') as won
+      from c group by c.assigned_to
+  ),
+  owner_nodeal_rev as (
+    select assigned_to, sum(estimated_value) as rev from nodeal where stage = 'won' group by assigned_to
+  )
+  select jsonb_build_object(
+    'by_stage', (select coalesce(jsonb_agg(x), '[]') from (
+        select stage::text as name, count(*) as value from c group by stage) x),
+    'by_industry', (select coalesce(jsonb_agg(x), '[]') from (
+        select coalesce(nullif(trim(industry), ''), 'Unknown') as name, count(*) as value
+          from c group by 1 order by 2 desc limit 10) x),
+    'by_district', (select coalesce(jsonb_agg(x), '[]') from (
+        select coalesce(nullif(trim(district), ''), 'Unknown') as name, count(*) as value
+          from c group by 1 order by 2 desc limit 15) x),
+    'by_service', (select coalesce(jsonb_agg(x), '[]') from (
+        select s.name, count(*) as value
+          from public.lead_service_recommendations r
+          join c on c.id = r.contact_id
+          join public.services s on s.id = r.service_id
+         group by s.name order by 2 desc limit 12) x),
+    'by_owner', (select coalesce(jsonb_agg(x), '[]') from (
+        select coalesce(p.full_name, 'Unassigned') as name, o.leads, o.contacted, o.won,
+               coalesce(dr.rev, 0) + coalesce(nr.rev, 0) as revenue
+          from owners o
+          left join public.profiles p on p.id = o.assigned_to
+          left join owner_deal_rev dr on dr.assigned_to is not distinct from o.assigned_to
+          left join owner_nodeal_rev nr on nr.assigned_to is not distinct from o.assigned_to
+         order by o.leads desc limit 15) x),
+    'monthly', (select coalesce(jsonb_agg(x order by x.month), '[]') from (
+        select to_char(months.m, 'YYYY-MM') as month,
+               coalesce(nl.n, 0) as new_leads,
+               coalesce(w.n, 0) as won,
+               coalesce(dv.v, 0) + coalesce(ev.v, 0) as revenue
+          from months
+          left join (select date_trunc('month', created_at at time zone 'Asia/Colombo') as m, count(*) as n from c group by 1) nl on nl.m = months.m
+          left join (select date_trunc('month', won_at at time zone 'Asia/Colombo') as m, count(*) as n from c where won_at is not null group by 1) w on w.m = months.m
+          left join (select date_trunc('month', closed_at at time zone 'Asia/Colombo') as m, sum(value) as v from d where stage = 'won' group by 1) dv on dv.m = months.m
+          left join (select date_trunc('month', won_at at time zone 'Asia/Colombo') as m, sum(estimated_value) as v from nodeal where won_at is not null group by 1) ev on ev.m = months.m
+       ) x),
+    'revenue_by_service', (select coalesce(jsonb_agg(x), '[]') from (
+        select coalesce(s.name, 'Unspecified') as name, sum(d.value) as value
+          from d left join public.services s on s.id = d.service_id
+         where d.stage = 'won' group by 1 order by 2 desc limit 12) x),
+    'deals_by_stage', (select coalesce(jsonb_agg(x), '[]') from (
+        select stage::text as name, count(*) as count, coalesce(sum(value), 0) as value
+          from d group by stage) x),
+    'quotations_by_status', (select coalesce(jsonb_agg(x), '[]') from (
+        select status::text as name, count(*) as value, coalesce(sum(total), 0) as amount
+          from public.quotations group by status) x)
+  )
+$$;
+
+-- >>> 20261115000009_fast_rls.sql
+-- =====================================================================
+-- Faster Row Level Security for large lead tables (same rules, faster).
+-- The old policies called can_access_owner() for EVERY row, and that function
+-- looked up the user's role every time (~17k + ~45k calls per dashboard).
+-- Here the role / user id / team are wrapped in (select ...) so Postgres
+-- evaluates them ONCE per query (init-plans), then compares plain columns.
+-- Visibility is unchanged:
+--   admin: everything / manager: own + team members' + unassigned
+--   executive: own only / inactive / unknown user: nothing
+-- =====================================================================
+
+-- contacts ------------------------------------------------------------
+drop policy contacts_select on public.contacts;
+create policy contacts_select on public.contacts for select to authenticated using (
+  case (select public.current_user_role())
+    when 'admin' then true
+    when 'sales_manager' then assigned_to is null or assigned_to = (select auth.uid())
+                              or assigned_to in (select p.id from public.profiles p where p.manager_id = (select auth.uid()))
+    when 'sales_executive' then assigned_to = (select auth.uid())
+    else false
+  end
+);
+
+drop policy contacts_update on public.contacts;
+create policy contacts_update on public.contacts for update to authenticated
+  using (
+    case (select public.current_user_role())
+      when 'admin' then true
+      when 'sales_manager' then assigned_to is null or assigned_to = (select auth.uid())
+                                or assigned_to in (select p.id from public.profiles p where p.manager_id = (select auth.uid()))
+      when 'sales_executive' then assigned_to = (select auth.uid())
+      else false
+    end)
+  with check ((select public.is_manager_or_admin()) or assigned_to = (select auth.uid()));
+
+-- Child tables: admins skip the per-row parent lookup entirely ----------
+drop policy lsr_all on public.lead_service_recommendations;
+create policy lsr_all on public.lead_service_recommendations for all to authenticated
+  using ((select public.is_admin()) or exists (select 1 from public.contacts c where c.id = contact_id))
+  with check ((select public.is_admin()) or exists (select 1 from public.contacts c where c.id = contact_id));
+
+drop policy activities_select on public.deal_activities;
+create policy activities_select on public.deal_activities for select to authenticated
+  using ((select public.is_admin()) or exists (select 1 from public.contacts c where c.id = contact_id));
+
+drop policy comm_select on public.communication_logs;
+create policy comm_select on public.communication_logs for select to authenticated
+  using ((select public.is_admin()) or exists (select 1 from public.contacts c where c.id = contact_id));
+
+drop policy quotations_select on public.quotations;
+create policy quotations_select on public.quotations for select to authenticated
+  using ((select public.is_admin()) or exists (select 1 from public.contacts c where c.id = contact_id));
+
+-- Speeds up the "exists parent contact" checks and the dashboard joins
+create index if not exists lsr_contact_idx on public.lead_service_recommendations(contact_id);
 

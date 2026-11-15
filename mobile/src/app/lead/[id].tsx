@@ -127,7 +127,7 @@ export default function LeadDetail() {
             </Pressable>
             {lead.estimated_value ? <Badge label={money(lead.estimated_value)} tone="success" /> : null}
             {lead.do_not_contact && <Badge label="Do not contact" tone="danger" icon="hand-left" />}
-            {lead.email_status && lead.email_status !== "ok" && <Badge label={`Email ${lead.email_status}`} tone="warning" />}
+            {lead.email && lead.email_status && ["bounced", "complained", "unsubscribed"].includes(lead.email_status) && <Badge label={`Email ${lead.email_status}`} tone="danger" />}
           </Row>
           {quick.some((q) => q.show) && (
             <Row gap={isTablet ? space.lg : space.sm} style={{ justifyContent: isTablet ? "flex-start" : "space-around" }}>

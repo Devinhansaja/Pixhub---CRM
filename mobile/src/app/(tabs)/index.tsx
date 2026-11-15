@@ -31,7 +31,8 @@ export default function Dashboard() {
     ]);
     return {
       stats: check(stats) as Stats,
-      bd: check(bd) as Breakdowns,
+      // Charts are optional: if they're slow, still show the numbers and lists
+      bd: (bd.error ? { by_stage: [], by_district: [] } : bd.data) as Breakdowns,
       tasks: (check(tasks) ?? []) as unknown as TaskRow[],
       follows: (check(follows) ?? []) as unknown as FollowRow[],
     };
