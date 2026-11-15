@@ -2,7 +2,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiEnabled, aiReviewEmail } from "@/lib/ai";
 import { colomboDayStart, fillTemplate, inSendWindow, nextGapMs, toHtml, toText } from "@/lib/email-core";
-import { ResendError, resendConfigured, sendViaResend } from "@/lib/resend";
+import { ResendError } from "@/lib/resend";
+import { mailerConfigured, mailProvider, providerDailyCap, senderAddress, sendEmail } from "@/lib/mailer";
 
 interface Campaign {
   id: string; name: string; status: string; subject: string; body: string;
@@ -27,18 +28,25 @@ async function pause(db: SupabaseClient, c: Campaign, reason: string) {
  */
 export async function runEmailTick(db: SupabaseClient, now = new Date()): Promise<TickResult[]> {
   const out: TickResult[] = [];
-  if (!resendConfigured()) return [{ campaign: "-", action: "RESEND_API_KEY not configured" }];
+  if (!mailerConfigured()) return [{ campaign: "-", action: "Email sending not configured (SMTP or Resend)" }];
 
   const [{ data: campaigns }, { data: settings }] = await Promise.all([
     db.from("email_campaigns").select("*").eq("status", "sending"),
     db.from("system_settings").select("value").eq("key", "email").maybeSingle(),
   ]);
   const cfg = (settings?.value ?? {}) as { from_name?: string; from_email?: string; reply_to?: string; footer?: string };
-  const from = `${cfg.from_name || "PIXhub.lk"} <${process.env.EMAIL_FROM_ADDRESS || cfg.from_email || "hello@pixhub.lk"}>`;
+  const from = `${cfg.from_name || "PIXhub.lk"} <${senderAddress(process.env.EMAIL_FROM_ADDRESS || cfg.from_email || "hello@pixhub.lk")}>`;
   const site = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+  const cap = providerDailyCap();
+  let sentTodayAll = 0;
+  if (cap !== null && campaigns?.length) {
+    const { count } = await db.from("email_messages").select("id", { count: "exact", head: true }).gte("sent_at", colomboDayStart(now).toISOString());
+    sentTodayAll = count ?? 0;
+  }
 
   for (const c of (campaigns ?? []) as Campaign[]) {
     const label = c.name;
+    if (cap !== null && sentTodayAll >= cap) { out.push({ campaign: label, action: `mailbox daily limit (${cap}) reached` }); continue; }
     if (!inSendWindow(now, c.send_start_hour, c.send_end_hour, c.send_days)) { out.push({ campaign: label, action: "outside sending hours" }); continue; }
     if (c.next_send_at && new Date(c.next_send_at) > now) { out.push({ campaign: label, action: "waiting (break)" }); continue; }
     if (c.ai_review && !aiEnabled()) { await pause(db, c, "AI review is switched on but the AI key (ANTHROPIC_API_KEY) isn't configured."); out.push({ campaign: label, action: "paused: AI not configured" }); continue; }
@@ -126,12 +134,13 @@ export async function runEmailTick(db: SupabaseClient, now = new Date()): Promis
 
     const unsubscribeUrl = `${site}/api/unsubscribe/${lead.unsubscribe_token}`;
     try {
-      const id = await sendViaResend({
+      const id = await sendEmail({
         from, to: lead.email, subject, replyTo: cfg.reply_to || undefined, unsubscribeUrl,
         html: toHtml(body, cfg.footer || "PIXhub.lk", unsubscribeUrl), text: toText(body, cfg.footer || "PIXhub.lk", unsubscribeUrl),
         tags: [{ name: "campaign", value: c.id }],
       });
       await finish({ status: "sent", provider_id: id, sent_at: new Date().toISOString(), subject, body, error: null });
+      sentTodayAll++;
       // Schedule the next follow-up, if any
       const nextStep = next.step + 1;
       const hasNext = c.followup_enabled && ((nextStep === 1 && c.followup1_body) || (nextStep === 2 && c.followup2_body));
@@ -146,7 +155,10 @@ export async function runEmailTick(db: SupabaseClient, now = new Date()): Promis
       const msg = e instanceof Error ? e.message : "Send failed";
       await finish({ status: "failed", error: msg.slice(0, 500) });
       if (e instanceof ResendError && [401, 403, 429].includes(e.status)) {
-        await pause(db, c, e.status === 429 ? "Resend rate/quota limit reached. Resume later or lower the daily limit." : `Resend rejected the request: ${msg}`);
+        const who = mailProvider() === "smtp" ? "The mailbox (SMTP)" : "Resend";
+        await pause(db, c, e.status === 429 ? `${who} sending limit reached. Resume later or lower the daily limit.`
+          : e.status === 401 && mailProvider() === "smtp" ? `${who} login failed — check SMTP_USER / SMTP_PASS (Gmail needs an App Password).`
+          : `${who} rejected the request: ${msg}`);
       }
       out.push({ campaign: label, action: `failed: ${msg}` });
     }

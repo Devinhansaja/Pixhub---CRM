@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient, requireRole } from "@/lib/supabase/server";
 import { aiEnabled } from "@/lib/ai";
-import { resendConfigured } from "@/lib/resend";
+import { mailerConfigured } from "@/lib/mailer";
 import { Alert, Badge, Card, CardHeader, PageHeader } from "@/components/ui";
 import { formatDate, formatNumber } from "@/lib/utils";
 import { CampaignEditor, type Options } from "../editor";
@@ -45,7 +45,7 @@ export default async function CampaignPage({ params, searchParams }: { params: {
       </div>
       {c.status === "paused" && c.paused_reason && <div className="mb-4"><Alert kind="warn"><strong>Paused:</strong> {c.paused_reason}</Alert></div>}
       {c.status === "draft" && c.review_note && <div className="mb-4"><Alert kind="warn"><strong>Changes requested:</strong> {c.review_note}</Alert></div>}
-      {!resendConfigured() && <div className="mb-4"><Alert kind="warn">Email sending isn&apos;t connected yet (Resend key missing), so this campaign can&apos;t start.</Alert></div>}
+      {!mailerConfigured() && <div className="mb-4"><Alert kind="warn">Email sending isn&apos;t connected yet (no SMTP mailbox or Resend key on the server), so this campaign can&apos;t start.</Alert></div>}
 
       <CampaignActions id={c.id} status={c.status} canApprove={canApprove} isCreator={c.created_by === me.id} isAdmin={me.role === "admin"} />
 

@@ -1,0 +1,13 @@
+Resend DNS records for pixhub.lk  (add in cPanel -> Zone Editor -> pixhub.lk -> Manage)
+These do NOT touch your existing website or email (MX) records.
+
+1) TXT   Name: resend._domainkey.pixhub.lk
+         Value: p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDRzeC8TdwEfPWIPVpHCsy1qac7NuU+jpwS23oQvAU9UEgaeApZbgob3KXq0C/UntqxhVJQRuvKMMI4Ki5NpwXZHtoBbY/xDgruc6vUkZsORv1scHGK0ylWftLZ5WZsXjh/N6iHWE/uSSq0szcDIEwjd5UxifwRHaK2FrgsRFQcxwIDAQAB
+
+2) CNAME Name: rsend.pixhub.lk
+         Value: rsend-apne1.forge.rmta.net
+
+3) CNAME Name: send.pixhub.lk
+         Value: send.forge.rmta.net
+
+TTL: leave default (14400 or Auto).

@@ -12,7 +12,7 @@ const nextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "5mb" },
     instrumentationHook: true, // src/instrumentation.ts: pooled HTTP connections
-    serverComponentsExternalPackages: ["undici"],
+    serverComponentsExternalPackages: ["undici", "nodemailer"],
   },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];

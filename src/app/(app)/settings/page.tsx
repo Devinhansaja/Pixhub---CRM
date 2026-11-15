@@ -1,5 +1,6 @@
 import { createClient, requireProfile } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
+import { mailProvider, providerDailyCap } from "@/lib/mailer";
 import { EmailSettings } from "./email-settings";
 import { OrgForm, PasswordForm, ProfileForm, ServicesEditor, TemplatesEditor } from "./forms";
 
@@ -15,8 +16,10 @@ export default async function SettingsPage() {
   ]);
   const defaultTax = Number((settings?.value as { default_tax_rate?: number } | null)?.default_tax_rate ?? 0);
   const { data: emailCfg } = await supabase.from("system_settings").select("value").eq("key", "email").maybeSingle();
+  const provider = mailProvider();
   const emailStatus = {
-    resend: !!process.env.RESEND_API_KEY, webhook: !!process.env.RESEND_WEBHOOK_SECRET, cron: !!process.env.CRON_SECRET,
+    provider, smtpUser: provider === "smtp" ? (process.env.SMTP_FROM || process.env.SMTP_USER || null) : null, dailyCap: providerDailyCap(),
+    webhook: !!process.env.RESEND_WEBHOOK_SECRET, cron: !!process.env.CRON_SECRET,
     ai: !!process.env.ANTHROPIC_API_KEY, fromOverride: process.env.EMAIL_FROM_ADDRESS ?? null,
   };
   return (

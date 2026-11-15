@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, requireProfile } from "@/lib/supabase/server";
 import { applyLeadFilters, leadSelect, type LeadFilters } from "@/lib/leads-query";
 import { fillTemplate, toHtml, toText } from "@/lib/email-core";
-import { resendConfigured, sendViaResend } from "@/lib/resend";
+import { mailerConfigured, senderAddress, sendEmail } from "@/lib/mailer";
 
 type Result<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -150,7 +150,7 @@ export async function startCampaign(id: string) {
   return wrap<{ queued: number }>(async () => {
     const me = await manager();
     if (!UUID.test(id)) return { ok: false, error: "Invalid campaign" };
-    if (!resendConfigured()) return { ok: false, error: "Email sending isn't set up yet (RESEND_API_KEY missing on the server)." };
+    if (!mailerConfigured()) return { ok: false, error: "Email sending isn't set up yet (add the SMTP mailbox or Resend key on the server)." };
     const supabase = createClient();
     const { data: c } = await supabase.from("email_campaigns").select("id,status,audience").eq("id", id).single();
     if (!c) return { ok: false, error: "Campaign not found" };
@@ -179,7 +179,7 @@ export async function startCampaign(id: string) {
 export async function sendTestEmail(id: string) {
   return wrap(async () => {
     const me = await manager();
-    if (!resendConfigured()) return { ok: false, error: "Email sending isn't set up yet (RESEND_API_KEY missing)." };
+    if (!mailerConfigured()) return { ok: false, error: "Email sending isn't set up yet (add the SMTP mailbox or Resend key on the server)." };
     const supabase = createClient();
     const [{ data: c }, { data: settings }] = await Promise.all([
       supabase.from("email_campaigns").select("subject,body,audience").eq("id", id).single(),
@@ -193,8 +193,8 @@ export async function sendTestEmail(id: string) {
     const vars = { company: lead.company_name, contact_person: lead.contact_person, city: lead.city, services: [], sender: me.full_name };
     const body = fillTemplate(c.body, vars);
     const unsub = `${(process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "")}/api/unsubscribe/00000000-0000-0000-0000-000000000000`;
-    await sendViaResend({
-      from: `${cfg.from_name || "PIXhub.lk"} <${process.env.EMAIL_FROM_ADDRESS || cfg.from_email || "hello@pixhub.lk"}>`,
+    await sendEmail({
+      from: `${cfg.from_name || "PIXhub.lk"} <${senderAddress(process.env.EMAIL_FROM_ADDRESS || cfg.from_email || "hello@pixhub.lk")}>`,
       to: me.email, subject: `[TEST] ${fillTemplate(c.subject, vars)}`, replyTo: cfg.reply_to || undefined, unsubscribeUrl: unsub,
       html: toHtml(body, cfg.footer || "PIXhub.lk", unsub), text: toText(body, cfg.footer || "PIXhub.lk", unsub),
     });

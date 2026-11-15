@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient, requireRole } from "@/lib/supabase/server";
-import { resendConfigured } from "@/lib/resend";
+import { mailerConfigured } from "@/lib/mailer";
 import { Alert, Badge, Button, Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatDate, formatNumber } from "@/lib/utils";
 import { campaignStatusLabel, campaignStatusStyle } from "./options";
@@ -18,7 +18,7 @@ export default async function CampaignsPage() {
     <>
       <PageHeader title="Email Campaigns" description="Personalised emails to your leads, sent slowly with random breaks, checked by AI, approved by a manager, with automatic follow-ups."
         actions={<Link href="/campaigns/new"><Button><Plus className="h-4 w-4" /> New campaign</Button></Link>} />
-      {!resendConfigured() && <div className="mb-4"><Alert kind="warn">Sending isn&apos;t connected yet. You can create and approve campaigns, but emails will only go out once the Resend key is added (see Settings → Email sending).</Alert></div>}
+      {!mailerConfigured() && <div className="mb-4"><Alert kind="warn">Sending isn&apos;t connected yet. You can create and approve campaigns, but emails will only go out once a mailbox (SMTP) or Resend key is added on the server (see Settings → Email sending).</Alert></div>}
       {(campaigns ?? []).length === 0 ? (
         <EmptyState title="No campaigns yet">Create one, choose who receives it (for example a file you uploaded), write the email, and set the sending speed.</EmptyState>
       ) : (

@@ -176,7 +176,10 @@ Meta charges per conversation; see Meta's WhatsApp pricing for Sri Lanka. Click-
 - **Protection:** an unsubscribe link and one-click unsubscribe header are on every email. Opted-out contacts, bounced addresses and spam-complainers are never emailed. A campaign auto-pauses when bounces go above its limit (default 5%) or after 2 spam complaints, and the creator is notified.
 - **Notifications:** approval requests, approved / changes requested, AI held back emails, auto-pause, spam complaint, campaign finished.
 
-**Setup:**
+**Setup — option A, send from a mailbox (Gmail or info@pixhub.lk) via SMTP:** no DNS changes needed.
+In Vercel → Environment Variables set `SMTP_USER` (the mailbox address), `SMTP_PASS` (for Gmail: an App Password from myaccount.google.com/apppasswords — needs 2-Step Verification), and `CRON_SECRET`; for a non-Gmail mailbox also `SMTP_HOST`/`SMTP_PORT`. Redeploy, then do steps 3–4 below. Gmail allows ~500 emails/day; the CRM caps all campaigns at `SMTP_DAILY_LIMIT` (default 300). Mailbox sending has no delivery/open tracking — bounces arrive in the inbox.
+
+**Setup — option B, Resend:**
 1. In Resend (resend.com): add and verify the **pixhub.lk** domain (DNS records), create an **API key**, and add a **webhook** to `https://YOUR-DOMAIN/api/email/webhook` for the events sent, delivered, opened, bounced and complained. Copy its signing secret.
 2. In Vercel → Environment Variables: `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `CRON_SECRET` (any long random string). Then redeploy.
 3. Supabase: run `supabase/migrations/20261115000006_email_campaigns.sql`, enable the `pg_cron` and `pg_net` extensions, and run `supabase/email-cron.sql` with your `CRON_SECRET`.
