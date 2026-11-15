@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "pixhub-mobile-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "mobile", "run", "web", "--", "--port", "8081"],
+      "port": 8081
+    },
+    {
       "name": "pixhub-crm-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

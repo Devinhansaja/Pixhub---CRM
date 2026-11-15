@@ -1,0 +1,48 @@
+{
+  "name": "pixhub-crm-desktop",
+  "productName": "PIXhub CRM",
+  "version": "1.0.0",
+  "description": "PIXhub Sales CRM for Windows",
+  "author": "PIXhub.lk",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable",
+    "dist:installer": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "lk.pixhub.crm",
+    "productName": "PIXhub CRM",
+    "copyright": "© PIXhub.lk",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/icon.png"
+    ],
+    "win": {
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "PIXhub-CRM-Setup-${version}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PIXhub CRM"
+    },
+    "portable": {
+      "artifactName": "PIXhub-CRM-${version}-portable.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "38.2.2",
+    "electron-builder": "26.0.12"
+  }
+}

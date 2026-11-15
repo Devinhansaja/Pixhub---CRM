@@ -1,0 +1,44 @@
+{
+    "cli":  {
+                "version":  ">= 16.0.0",
+                "appVersionSource":  "remote"
+            },
+    "build":  {
+                  "development":  {
+                                      "developmentClient":  true,
+                                      "distribution":  "internal",
+                                      "env":  {
+                                                  "EXPO_PUBLIC_SUPABASE_URL":  "https://dvenxlgdtraazkzkqzug.supabase.co",
+                                                  "EXPO_PUBLIC_SUPABASE_ANON_KEY":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2ZW54bGdkdHJhYXpremtxenVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3MTY0MjcsImV4cCI6MjExMDI5MjQyN30.XBqa10viec5EisOqy8CXQ3u5jp0swIF-OGhYCZ-hgZs",
+                                                  "EXPO_PUBLIC_WEB_URL":  "https://pixhub-crm.vercel.app"
+                                              }
+                                  },
+                  "preview":  {
+                                  "distribution":  "internal",
+                                  "android":  {
+                                                  "buildType":  "apk"
+                                              },
+                                  "env":  {
+                                              "EXPO_PUBLIC_SUPABASE_URL":  "https://dvenxlgdtraazkzkqzug.supabase.co",
+                                              "EXPO_PUBLIC_SUPABASE_ANON_KEY":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2ZW54bGdkdHJhYXpremtxenVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3MTY0MjcsImV4cCI6MjExMDI5MjQyN30.XBqa10viec5EisOqy8CXQ3u5jp0swIF-OGhYCZ-hgZs",
+                                              "EXPO_PUBLIC_WEB_URL":  "https://pixhub-crm.vercel.app"
+                                          }
+                              },
+                  "production":  {
+                                     "autoIncrement":  true,
+                                     "android":  {
+                                                     "buildType":  "app-bundle"
+                                                 },
+                                     "env":  {
+                                                 "EXPO_PUBLIC_SUPABASE_URL":  "https://dvenxlgdtraazkzkqzug.supabase.co",
+                                                 "EXPO_PUBLIC_SUPABASE_ANON_KEY":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR2ZW54bGdkdHJhYXpremtxenVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3MTY0MjcsImV4cCI6MjExMDI5MjQyN30.XBqa10viec5EisOqy8CXQ3u5jp0swIF-OGhYCZ-hgZs",
+                                                 "EXPO_PUBLIC_WEB_URL":  "https://pixhub-crm.vercel.app"
+                                             }
+                                 }
+              },
+    "submit":  {
+                   "production":  {
+
+                                  }
+               }
+}
